@@ -34,7 +34,7 @@ jobs:
 
     - name: Initialization environment
       run : |
-        git config --global user.email "xiaoka6666@users.noreply.github.com"
+        git config --global user.email "115566356+xiaoka6666@users.noreply.github.com"
         git config --global user.name "xiaoka6666"
         sudo timedatectl set-timezone "Asia/Shanghai"
         
