@@ -72,9 +72,9 @@ jobs:
         fi || exit 0
 
     - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
+      uses: Mattraks/delete-workflow-runs@main
       with:
+        ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
         retain_days: 1
         keep_minimum_runs: 1
-
  
