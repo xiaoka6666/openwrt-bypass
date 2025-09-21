@@ -1,15 +1,25 @@
 #!/bin/sh
-if [ "$ACTION" = ifup -a "$INTERFACE" != wan_6 ];then
-	if uci -q get bypass.@global[0].global_server >/dev/null;then
-		if ipset list bypass_all >/dev/null 2>&1;then
-			ipset -F bypass_all
-			for i in $(ip -4 add show | grep -v $(uci -qP /tmp/state get network.wan.device || echo 127.0.0.1) | grep inet | grep -v 127.0.0.1 | awk '{print$2}');do
-				ipset -! add bypass_all $i
-			done
+[ "$ACTION" = ifup ] || exit 0
+[ -f /var/lock/bypass_ready.lock ] || exit 0
+if uci -q get bypass.@global[0].global_server >/dev/null;then
+	default_device=$(ip route | grep default | awk -F 'dev ' '{print $2}' | awk '{print $1}')
+	[ "$default_device" == "$DEVICE" ] && {
+		LOCK_FILE_DIR=/var/lock
+		[ ! -d ${LOCK_FILE_DIR} ] && mkdir -p ${LOCK_FILE_DIR}
+		LOCK_FILE="${LOCK_FILE_DIR}/bypass_ifup.lock"
+		if [ -s ${LOCK_FILE} ]; then
+			SPID=$(cat ${LOCK_FILE})
+			if [ -e /proc/${SPID}/status ]; then
+				exit 1
+			fi
+			cat /dev/null > ${LOCK_FILE}
 		fi
-		if pidof smartdns >/dev/null;then
-			killall -q -9 smartdns
-			$(which smartdns) -c /var/etc/smartdns/smartdns.conf
-		fi
-	fi
+		echo $$ > ${LOCK_FILE}
+		
+		/etc/init.d/bypass restart
+		echo "bypass: restart when $INTERFACE ifup" > /dev/kmsg
+
+		rm -rf ${LOCK_FILE}
+	}
+
 fi

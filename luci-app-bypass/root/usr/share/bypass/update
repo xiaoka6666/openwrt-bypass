@@ -1,69 +1,95 @@
 #!/bin/sh
 [ "$1" = --First ] && A=Y || A=N
-# 防止重复启动
-[ -f /var/lock/bypass.lock -a $A = N ] && exit 1
-LOCK=/var/lock/bypass-update.lock
-[ -f $LOCK ] && exit 1
-touch $LOCK
+LOCKU=/tmp/lock/bypass-update.lock
+[ -f $LOCKU ] && exit 1
+touch $LOCKU
 DIR=/usr/share/bypass
-T_FILE=/etc/bypass
-
+TMP=/etc/bypass
+TMP2=/tmp/etc/bypass
+LOG=/tmp/log/bypass.log
+chnroute_url=$(uci -q get bypass.@global_rules[0].chnroute_url)
+chnroute6_url=$(uci -q get bypass.@global_rules[0].chnroute6_url)
+domains_url=$(uci -q get bypass.@global_rules[0].domains_url)
+gfwlist_url="$(uci -q get bypass.@global_rules[0].gfwlist_url)"
+ad_url="$(uci -q get bypass.@global_rules[0].ad_url)"
+proxy=""
+# google_status=$(curl -I -4 -m 3 -o /dev/null -s -w %{http_code} http://www.google.com/generate_204)
+# [ "$google_status" -ne "204" ] && proxy="https://ghproxy.com/"
 log(){
-	echo "$(date +'%Y-%m-%d %H:%M:%S') $*" >> /var/log/bypass.log
+	echo "$(date +'%Y-%m-%d %H:%M:%S') $*" >> $LOG
 }
 
-C=$(uci -q get bypass.@global[0].run_mode)
+echo '------------Update start------------' >> $LOG
+[ ! -d $TMP ] && mkdir -p $TMP 2>/dev/null
+[ ! -d $TMP2 ] && mkdir -p $TMP2 2>/dev/null
 
-mkdir -p $T_FILE 2>/dev/null
-if [ "$C" = router ];then
-	if [ ! -f $T_FILE/china.txt ];then
-		while ! (curl -kLfsm 5 -o /tmp/china.txt https://fastly.jsdelivr.net/gh/kiddin9/china_ip_list@main/china_ip_list.txt);do
-			sleep 1
-		done
-	else
-		curl -kLfsm 5 -o /tmp/china.txt https://fastly.jsdelivr.net/gh/kiddin9/china_ip_list@main/china_ip_list.txt
-	fi
+        echo -e "\e[1;32mDownloading "$proxy${chnroute_url}"\e[0m"
+	curl --connect-timeout 5 -m 60 --ipv4 -kfSLo "/tmp/china.txt" "$proxy${chnroute_url}" 
 	[[ -f /tmp/china.txt && $? == 0 ]] && {
-	if ! cmp -s /tmp/china.txt $T_FILE/china.txt;then
-		log "China IPv4 List 已更新"
-		cp -f /tmp/china.txt $T_FILE/china.txt
-		[ $A = N ] && ipset list china_v4 >/dev/null 2>&1 && $DIR/chinaipset
+	if ! cmp -s /tmp/china.txt $TMP/china.txt;then
+			cp -f /tmp/china.txt $TMP/china.txt
+			mv /tmp/china.txt $TMP2/china.txt
+			log "By Update  : Updated China IPv4 List Total Number of Items :`cat /etc/bypass/china.txt | wc -l` "
+			[ $A = N ] && ipset list china_v4 >/dev/null 2>&1 && $DIR/chinaipset
+
+	else
+			log "By Update  : China IPv4 List Total Number of Items  :` cat /etc/bypass/china.txt | wc -l` "
 	fi
 	}
 
-	if [ ! -f $T_FILE/china_v6.txt ];then
-		while ! (curl -kLfsm 3 -o /tmp/china_v6.txt https://ispip.clang.cn/all_cn_ipv6.txt);do
-			sleep 1
-		done
-	elif [ $A = N ];then
-		curl -kLfsm 3 -o /tmp/china_v6.txt https://ispip.clang.cn/all_cn_ipv6.txt
-	fi
+	echo -e "\e[1;32mDownloading "$proxy${chnroute6_url}"\e[0m"
+	curl --connect-timeout 5 -m 60 --ipv4 -kfSLo "/tmp/china_v6.txt" "$proxy${chnroute6_url}" 
 	[[ -f /tmp/china_v6.txt && $? == 0 ]] && {
-	if ! cmp -s /tmp/china_v6.txt $T_FILE/china_v6.txt;then
-		log "China IPv6 List 已更新"
-		cp -f /tmp/china_v6.txt $T_FILE/china_v6.txt
+	if ! cmp -s /tmp/china_v6.txt $TMP/china_v6.txt;then
+			cp -f /tmp/china_v6.txt $TMP/china_v6.txt 
+			mv /tmp/china_v6.txt $TMP2/china_v6.txt 
+			log "By Update  : Updated China IPv6 List Total Number of Items :` cat /etc/bypass/china_v6.txt | wc -l` "
 		[ $A = N ] && ipset list china_v6 >/dev/null 2>&1 && $DIR/chinaipset v6
+	else
+			log "By Update  : China IPv6 List Total Number of Items :`cat /etc/bypass/china_v6.txt | wc -l` "
 	fi
 	}
-fi
 
-if [ "$C" = gfw -o "$(uci -q get bypass.@global[0].gfw_mode)" = 1 ];then
-	if [ ! -f $T_FILE/gfw.list ];then
-		while ! (curl -kLfsm 5 -o /tmp/gfw.b64 https://fastly.jsdelivr.net/gh/gfwlist/gfwlist/gfwlist.txt);do
-			sleep 1
-		done
-	elif [ "$C" = gfw -o $A = N ];then
-		curl -kLfsm 5 -o /tmp/gfw.b64 https://fastly.jsdelivr.net/gh/gfwlist/gfwlist/gfwlist.txt
-	fi
-	if [[ -f /tmp/gfw.b64 && $? == 0 ]];then
-	$DIR/by-gfw
-	if ! cmp -s /tmp/gfwnew.txt $T_FILE/gfw.list;then
-		cp -f /tmp/gfwnew.txt $T_FILE/gfw.list
-		log "GFW List 已更新"
-	fi
-	fi
-fi
+	echo -e "\e[1;32mDownloading "$proxy${gfwlist_url}"\e[0m"
+	curl --connect-timeout 5 -m 60 --ipv4 -kfSLo "/tmp/gfw.b64" "$proxy${gfwlist_url}" 
+	[[ -f /tmp/gfw.b64 && $? == 0 ]] && {
+	   $DIR/by-gfw  >/dev/null 2>&1
+	   if ! cmp -s /tmp/gfwnew.txt  $TMP/gfw.list ;then
+			cp -f /tmp/gfwnew.txt $TMP/gfw.list   >/dev/null 2>&1
+			mv /tmp/gfwnew.txt $TMP2/gfw.list 
+			log "By Update  : Updated GFW List Total Number of Items : `cat /etc/bypass/gfw.list | wc -l` "
+	   else
+			log "By Update  : GFW List Total Number of Items : `cat /etc/bypass/gfw.list | wc -l` "
+	   fi
+	}
 
-rm -f $LOCK /tmp/china*.txt /tmp/gfwnew.txt
+        echo -e "\e[1;32mDownloading "$proxy${domains_url}"\e[0m"
+	curl --connect-timeout 5 -m 60 --ipv4 -kfSLo "/tmp/domains_cn.txt" "$proxy${domains_url}"
+		
+	[[ -f /tmp/domains_cn.txt && $? == 0 ]] && {
+	if ! cmp -s /tmp/domains_cn.txt $TMP/domains_cn.txt;then
+			cp -f /tmp/domains_cn.txt $TMP/domains_cn.txt
+			mv /tmp/domains_cn.txt $TMP2/domains_cn.txt
+			log "By Update  : Updated China Domains List Total Number of Items :` cat /etc/bypass/domains_cn.txt | wc -l` "
+	else
+			log "By Update  : China Domains Total Number of Items :`cat /etc/bypass/domains_cn.txt | wc -l` "
+	fi
+	}
 
-[ $A = Y ] && /etc/init.d/bypass start updated &
+        echo -e "\e[1;32mDownloading "$proxy${ad_url}"\e[0m"
+	curl --connect-timeout 5 -m 60 --ipv4 -kfSLo "/tmp/ad_list.txt" "$proxy${ad_url}"
+	
+	[[ -f /tmp/ad_list.txt && $? == 0 ]] && {
+	if ! cmp -s /tmp/ad_list.txt $TMP/ad_list.txt;then
+			cp -f /tmp/ad_list.txt $TMP/ad_list.txt
+			mv /tmp/ad_list.txt $TMP2/ad_list.txt
+			log "By Update  : anti-AD Update List Total Number of Items :` cat /etc/bypass/ad_list.txt | wc -l` "
+	else
+			log "By Update  : anti-AD List Total Number of Items :`cat /etc/bypass/ad_list.txt | wc -l` "
+	fi
+	}
+log  "By Update  : Check or update IPV4/IPV6/GFW/AD list complete!  "
+echo '------------Update end------------' >> $LOG
+rm -f $LOCKU /tmp/china*.txt /tmp/gfwnew.txt /tmp/gfw.b64 /tmp/ad_list.txt /tmp/domains_cn.txt
+
+[ $A = Y ] && /etc/init.d/bypass start &

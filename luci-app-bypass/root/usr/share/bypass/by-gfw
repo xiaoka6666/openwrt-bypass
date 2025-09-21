@@ -1,8 +1,10 @@
 #!/bin/sh -e
 
 generate_china_banned()
-{
-	cat $1 | base64 -d > /tmp/gfwlist.txt
+{ 
+	t=`cat $1 | base64 -d | wc -l`  2>/dev/null
+	[[ $t == 0 ]] && cat $1 > /tmp/gfwlist.txt || base64 -d $1 > /tmp/gfwlist.txt 
+	# cat /etc/bypass/gfw_base.list >>  /tmp/gfwlist.txt
 	rm -f $1
 	sed -i '/^@@|/d' /tmp/gfwlist.txt
 	cat /tmp/gfwlist.txt | sort -u |

@@ -1,3 +1,9 @@
+local m,s,o
+local bypass="bypass"
+local uci=luci.model.uci.cursor()
+local server_count=0
+local SYS=require"luci.sys"
+
 local server_table={}
 luci.model.uci.cursor():foreach("bypass","servers",function(s)
 	if (s.type=="ss" and not nixio.fs.access("/usr/bin/ss-local")) or (s.type=="ssr" and not nixio.fs.access("/usr/bin/ssr-local")) or s.type=="socks5" or s.type=="tun" then
@@ -9,10 +15,6 @@ luci.model.uci.cursor():foreach("bypass","servers",function(s)
 		server_table[s[".name"]]="[%s]:%s:%s"%{string.upper(s.type),s.server,s.server_port}
 	end
 end)
-
-local function is_finded(e)
-	return luci.sys.exec('type -t -p "%s"' % e) ~= "" and true or false
-end
 
 local key_table={}
 for key,_ in pairs(server_table) do
@@ -26,15 +28,22 @@ m=Map("bypass")
 s=m:section(TypedSection,"global",translate("Server failsafe auto swith settings"))
 s.anonymous=true
 
+o=s:option(Flag,"ad_list",translate("Enable DNS anti-AD"))
+o.default=0
+
 o=s:option(Flag,"monitor_enable",translate("Enable Process Deamon"))
 o.default=1
 
 o=s:option(Flag,"enable_switch",translate("Enable Auto Switch"))
 o.default=1
 
+o=s:option(Value,"start_delay",translate("Start Run Delay(second)"))
+o.datatype="uinteger"
+o.default=30
+
 o=s:option(Value,"switch_time",translate("Switch check cycly(second)"))
 o.datatype="uinteger"
-o.default=300
+o.default=120
 o:depends("enable_switch",1)
 
 o=s:option(Value,"switch_timeout",translate("Check timout(second)"))
@@ -47,7 +56,66 @@ o.datatype="uinteger"
 o.default=3
 o:depends("enable_switch",1)
 
-s=m:section(TypedSection,"socks5_proxy",translate("Global SOCKS5 Proxy Server"))
+o = s:option(Button, "Reset", translate("Reset to defaults"))
+o.inputstyle = "reload"
+o.write = function()
+	luci.sys.call("/etc/init.d/bypass reset")
+	luci.http.redirect(luci.dispatcher.build_url("admin", "services", "bypass", "servers"))
+end
+
+-- [[ Rule Settings ]]--
+s = m:section(TypedSection, "global_rules", translate("Rule status"))
+s.anonymous = true
+
+----ad_list URL
+o = s:option(Value, "ad_url", translate("anti-AD Update URL"))
+o:value("https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt", translate("privacy-protection-tools/anti-ad-github"))
+o:value("https://anti-ad.net/domains.txt", translate("privacy-protection-tools/anti-AD"))
+o:value("https://github.com/sirpdboy/iplist/releases/latest/download/ad_list.txt", translate("sirpdboy/ad_list"))
+o.default = "https://raw.githubusercontent.com/privacy-protection-tools/anti-AD/master/anti-ad-domains.txt"
+
+---- gfwlist URL
+o = s:option(Value, "gfwlist_url", translate("GFW domains Update URL"))
+o:value("https://fastly.jsdelivr.net/gh/YW5vbnltb3Vz/domain-list-community@release/gfwlist.txt", translate("v2fly/domain-list-community"))
+o:value("https://fastly.jsdelivr.net/gh/Loukky/gfwlist-by-loukky/gfwlist.txt", translate("Loukky/gfwlist-by-loukky"))
+o:value("https://fastly.jsdelivr.net/gh/gfwlist/gfwlist/gfwlist.txt", translate("gfwlist/gfwlist"))
+o:value("https://github.com/sirpdboy/iplist/releases/latest/download/gfwlist.txt", translate("sirpdboy/gfwlist"))
+o:value("https://openwrt.ai/bypass/gfwlist.txt", translate("supes/gfwlist"))
+o.default = "https://fastly.jsdelivr.net/gh/YW5vbnltb3Vz/domain-list-community@release/gfwlist.txt"
+
+----chnroute  URL
+o = s:option(Value, "chnroute_url", translate("China IPv4 Update URL"))
+o:value("https://ispip.clang.cn/all_cn.txt", translate("Clang.CN"))
+o:value("https://ispip.clang.cn/all_cn_cidr.txt", translate("Clang.CN.CIDR"))
+o:value("https://fastly.jsdelivr.net/gh/Loyalsoldier/geoip@release/text/cn.txt", translate("Loyalsoldier/geoip-CN"))
+o:value("https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china.txt", translate("gaoyifan/china-cn"))
+o:value("https://fastly.jsdelivr.net/gh/soffchen/GeoIP2-CN@release/CN-ip-cidr.txt", translate("soffchen/GeoIP2-CN"))
+o:value("https://fastly.jsdelivr.net/gh/Hackl0us/GeoIP2-CN@release/CN-ip-cidr.txt", translate("Hackl0us/GeoIP2-CN"))
+o:value("https://github.com/sirpdboy/iplist/releases/latest/download/all_cn.txt", translate("sirpdboy/all_cn"))
+o:value("https://openwrt.ai/bypass/all_cn.txt", translate("supes/all_cn"))
+o.default = "https://ispip.clang.cn/all_cn.txt"
+
+----chnroute6 URL
+o = s:option(Value, "chnroute6_url", translate("China IPv6 Update URL"))
+o:value("https://ispip.clang.cn/all_cn_ipv6.txt", translate("Clang.CN.IPv6"))
+o:value("https://fastly.jsdelivr.net/gh/gaoyifan/china-operator-ip@ip-lists/china6.txt", translate("gaoyifan/china-ipv6"))
+o:value("https://github.com/sirpdboy/iplist/releases/latest/download/all_cn_ipv6.txt", translate("sirpdboy/all_cn_ipv6"))
+o.default = "https://ispip.clang.cn/all_cn_ipv6.txt"
+
+----domains URL
+o = s:option(Value, "domains_url", translate("China Domains Update URL"))
+o:value("https://fastly.jsdelivr.net/gh/yubanmeiqin9048/domain@release/accelerated-domains.china.txt", translate("yubanmeiqin9048/domains.china"))
+o:value("https://github.com/sirpdboy/iplist/releases/latest/download/domains_cn.txt", translate("sirpdboy/domains_cn"))
+o.default = "https://fastly.jsdelivr.net/gh/yubanmeiqin9048/domain@release/accelerated-domains.china.txt"
+
+o = s:option(Button, "UpdateRule", translate("Update All Rule List"))
+o.inputstyle = "apply"
+o.write = function()
+    luci.sys.call("bash /usr/share/bypass/update")
+    luci.http.redirect(luci.dispatcher.build_url("admin", "services", "bypass", "log"))
+end
+
+s=m:section(TypedSection,"socks5_proxy",translate("Global SOCKS5 Server"))
 s.anonymous=true
 
 o=s:option(ListValue,"server",translate("Server"))
@@ -58,80 +126,5 @@ for _,key in pairs(key_table) do o:value(key,server_table[key]) end
 o=s:option(Value,"local_port",translate("Local Port"))
 o.datatype="port"
 o.placeholder=1080
-
--- [[ fragmen Settings ]]--
-if is_finded("xray") then
-s = m:section(TypedSection, "global_xray_fragment", translate("Xray Fragment Settings"))
-s.anonymous = true
-
-o = s:option(Flag, "fragment", translate("Fragment"), translate("TCP fragments, which can deceive the censorship system in some cases, such as bypassing SNI blacklists."))
-o.default = 0
-
-o = s:option(ListValue, "fragment_packets", translate("Fragment Packets"), translate("\"1-3\" is for segmentation at TCP layer, applying to the beginning 1 to 3 data writes by the client. \"tlshello\" is for TLS client hello packet fragmentation."))
-o.default = "tlshello"
-o:value("tlshello", "tlshello")
-o:value("1-1", "1-1")
-o:value("1-2", "1-2")
-o:value("1-3", "1-3")
-o:value("1-5", "1-5")
-o:depends("fragment", true)
-
-o = s:option(Value, "fragment_length", translate("Fragment Length"), translate("Fragmented packet length (byte)"))
-o.default = "100-200"
-o:depends("fragment", true)
-
-o = s:option(Value, "fragment_interval", translate("Fragment Interval"), translate("Fragmentation interval (ms)"))
-o.default = "10-20"
-o:depends("fragment", true)
-
-o = s:option(Flag, "noise", translate("Noise"), translate("UDP noise, Under some circumstances it can bypass some UDP based protocol restrictions."))
-o.default = 0
-
-s = m:section(TypedSection, "xray_noise_packets", translate("Xray Noise Packets"))
-s.description = translate(
-    "<font style='color:red'>" .. translate("To send noise packets, select \"Noise\" in Xray Settings.") .. "</font>" ..
-    "<br/><font><b>" .. translate("For specific usage, see:") .. "</b></font>" ..
-    "<a href='https://xtls.github.io/config/outbounds/freedom.html' target='_blank'>" ..
-    "<font style='color:green'><b>" .. translate("Click to the page") .. "</b></font></a>")
-s.template = "cbi/tblsection"
-s.sortable = true
-s.anonymous = true
-s.addremove = true
-
-s.remove = function(self, section)
-	for k, v in pairs(self.children) do
-		v.rmempty = true
-		v.validate = nil
-	end
-	TypedSection.remove(self, section)
-end
-
-o = s:option(Flag, "enabled", translate("Enable"))
-o.default = 1
-o.rmempty = false
-
-o = s:option(ListValue, "type", translate("Type"))
-o.default = "base64"
-o:value("rand", "rand")
-o:value("str", "str")
-o:value("base64", "base64")
-
-o = s:option(Value, "domainStrategy", translate("Domain Strategy"))
-o.default = "UseIP"
-o:value("AsIs", "AsIs")
-o:value("UseIP", "UseIP")
-o:value("UseIPv4", "UseIPv4")
-o:value("ForceIP", "ForceIP")
-o:value("ForceIPv4", "ForceIPv4")
-o.rmempty = false
-
-o = s:option(Value, "packet", translate("Packet"))
-o.datatype = "minlength(1)"
-o.rmempty = false
-
-o = s:option(Value, "delay", translate("Delay (ms)"))
-o.datatype = "or(uinteger,portrange)"
-o.rmempty = false
-end
 
 return m
