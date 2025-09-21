@@ -16,6 +16,6 @@ function mvdir() {
 mv -n `find $1/* -maxdepth 0 -type d` ./
 rm -rf $1
 }
-git clone https://github.com/siropboy/luci-app-bypass && mv -n luci-app-bypass/luci-app-bypass ./
+git clone --depth 1 https://github.com/kiddin9/kwrt-packages && mv -n kwrt-packages/luci-app-bypass ./ ; rm -rf kwrt-packages
 exit 0
 
