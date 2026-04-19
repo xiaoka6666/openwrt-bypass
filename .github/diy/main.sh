@@ -16,6 +16,6 @@ function mvdir() {
 mv -n `find $1/* -maxdepth 0 -type d` ./
 rm -rf $1
 }
-git clone --depth 1 https://github.com/kiddin9/op-packages && mv -n op-packages/luci-app-bypass ./ ; rm -rf op-packages
+git clone https://github.com/kiddin9/op-packages && mv -n op-packages/luci-app-bypass ./ ; rm -rf op-packages
 exit 0
 
